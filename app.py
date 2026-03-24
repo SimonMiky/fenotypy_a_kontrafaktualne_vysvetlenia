@@ -16,7 +16,7 @@ st.markdown("""
 
 /* Farba tlačidla */
 div.stButton > button {
-    background-color: #1f4e79;
+    background-color: #1f77b4;
     color: white;
     border-radius: 8px;
     height: 50px;
@@ -26,7 +26,7 @@ div.stButton > button {
 
 /* Hover efekt */
 div.stButton > button:hover {
-    background-color: #163a59;
+    background-color: #4e8cd9;
     color: white;
 }
 
@@ -65,14 +65,30 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# nastavenie infoboxov
+def info_box(text):
+    st.markdown(f"""
+    <div style="
+        background-color: #4e8cd9;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 6px solid #1f77b4;
+        color: #ffffff;
+        font-size: 16px;
+        margin-bottom: 1rem;
+    ">
+        {text}
+    </div>
+    """, unsafe_allow_html=True)
+
 # ==========================
 # NAČÍTANIE MODELU
 # ==========================
 
-model = joblib.load("kmeans_model_4vlna.pkl")
-scaler = joblib.load("scaler_4vlna.pkl")
-X_scaled = pd.read_pickle("X_scaled_4vlna.pkl")
-X_orig = pd.read_pickle("X_orig_4vlna.pkl")
+model = joblib.load("kmeans_model_4vlna15_.pkl")
+scaler = joblib.load("scaler_4vlna15.pkl")
+X_scaled = pd.read_pickle("X_scaled_4vlna15.pkl")
+X_orig = pd.read_pickle("X_orig_4vlna15.pkl")
 
 centroids = model.cluster_centers_
 
@@ -83,7 +99,7 @@ cluster_severity = {
     2: "Najzávažnejší"
 }
 
-st.title("Kontrafaktuálne vysvetlenia pacientov")
+st.title("Fenotypy a kontrafaktuálne vysvetlenia pacientov")
 
 # pocitanie medianov 
 cluster_medians = (
@@ -96,7 +112,7 @@ cluster_medians = (
 # Tabulka medianov fenotypov 
 def plot_cluster_heatmap(cluster_medians, highlight_cluster=None):
 
-    fig, ax = plt.subplots(figsize=(5, 8))
+    fig, ax = plt.subplots(figsize=(5, 5.6))
 
     sns.heatmap(
         cluster_medians.T,
@@ -162,7 +178,25 @@ def plot_radar_scaled(centroids, patient_scaled_df, cluster, feature_names):
 # INPUT PACIENTA
 # ==========================
 
-st.info(f"Pre priradenie pacienta do existujúceho fenotypu zadajte hodnoty atribútov pacienta. Hodnoty sú predvyplnené mediánmi hodnôt atribútov. Po priradení bude pacient zaradený do jedného z troch zhlukov, teda fenotypov, od najmenej závažného po najzávažnejší fenotyp.")
+st.markdown(f"""
+    <div style="
+        background-color: #4e8cd9;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 0px solid #1f77b4;
+        color: #ffffff;
+        font-size: 16px;
+        margin-bottom: 1rem;
+    ">
+        Táto aplikácia bola vytvorená v rámci diplomovej práce a slúži na analýzu fenotypov pacientov pomocou metód zhlukovania a kontrafaktuálnych vysvetlení. Jej cieľom je priradenie nového pacienta do modelu a lepšie porozumenie rozdielov medzi jednotlivými fenotypmi. \nAplikácia je rozdelená na dve hlavné časti. V prvej časti používateľ zadáva údaje o novom pacientovi, ktorý je následne automaticky priradený do jedného z fenotypov. Súčasťou tejto časti je aj vizualizácia hodnôt pacienta v porovnaní s jeho fenotypom a tiež porovnanie fenotypov navzájom. \n Druhá časť aplikácie je zameraná na kontrafaktuálne vysvetlenia. Tu si môže používateľ zvoliť cieľový fenotyp pacienta a aplikácia následne určí minimálne zmeny vo vstupných atribútoch, ktoré by viedli k preradeniu nového pacienta do zvoleného fenotypu. Týmto spôsobom aplikácia poskytuje hlbší pohľad do faktorov ovplyvňujúcich zaradenie pacienta.
+    </div>
+    """, unsafe_allow_html=True)
+
+st.divider()
+
+st.subheader("1. časť - Fenotypyzácia nového pacienta")
+
+info_box("Pre priradenie nového pacienta do existujúceho fenotypu zadajte hodnoty atribútov pacienta. Hodnoty sú predvyplnené mediánmi hodnôt atribútov. Po priradení bude pacient zaradený do jedného z troch zhlukov, teda fenotypov, od najmenej závažného po najzávažnejší fenotyp.")
 
 st.markdown(
         "<p style='font-size:20px; font-weight:600;'>Zadajte údaje pacienta:",
@@ -170,17 +204,40 @@ st.markdown(
     )
 
 feature_names = X_orig.columns.tolist()
+
+feature_units = {
+    "NE/LY(NLR) last": "",
+    "S-CRP last": "mg/l",
+    "S-IL6 last": "ng/l",
+    "S-Alb last": "g/l",
+    "S-Na last": "mmol/l",
+    "S-Urea last": "mmol/l",
+    "D-dimér HS last": "mg/l",
+    "S-PBNP last": "ng/l",
+    "S-CL last": "mmol/l",
+    "SatO2 %": "%",
+    "P-Laktát last": "mmol/l",
+    "Fib last": "g/l",
+    "S-Gluk last": "mmol/l",
+    "WBC last": "10^9/l",
+    "Vek": "roky",
+}
+
 input_data = {}
 
 n_cols = 5                  # polia na zadanie hodnot pacienta v 5 stlpcoch
 cols = st.columns(n_cols)
 
+
+
 for i, feature in enumerate(feature_names):
     col = cols[i % n_cols]
     with col:
+        unit = feature_units.get(feature, "")     #jednotky
+        
         input_data[feature] = st.number_input(
-            feature,
-            value=float(X_orig[feature].median())  # predvyplnen8 hodnota je medi8n
+            f"{feature} ({unit})" if unit else feature,
+            value=float(X_orig[feature].median())         # predvyplnen8 hodnota je medi8n
         )
 
 # convert na DataFrame
@@ -240,6 +297,8 @@ if st.session_state.cluster is not None:
         <div style="
             display: flex;
             justify-content: center;
+            margin-bottom: 1rem;
+            margin-top: 2rem;
         ">
             <div style="
                 background-color: #57ba57; color: white; padding: 12px 25px; border-radius: 8px; font-size: 18px; font-weight: 500; text-align: center;
@@ -251,9 +310,7 @@ if st.session_state.cluster is not None:
         unsafe_allow_html=True
     )
 
-    st.divider()
-
-    st.info(f"Graf naľavo zobrazuje porovnanie štandardizovaných hodnôt pacienta a centroidu jeho fenotypu, teda fenotypu {cluster}. Tabuľka napravo zobrazuje mediány hodnôt atribútov jednotlivých fenotypov.")
+    info_box(f"Graf naľavo zobrazuje porovnanie štandardizovaných hodnôt pacienta a centroidu jeho fenotypu, teda fenotypu {cluster}. Tabuľka napravo zobrazuje mediány hodnôt atribútov jednotlivých fenotypov.")
 
     left_panel, right_panel = st.columns([1,1])
 
@@ -274,9 +331,9 @@ if st.session_state.cluster is not None:
 
     st.divider()
 
-    st.subheader("Kontrafaktuálne vysvetlenia")
+    st.subheader("2. časť - Kontrafaktuálne vysvetlenia")
 
-    st.info(f"Kontrafaktuálne vysvetlenia popisujú aké minimálne zmeny by museli u daného pacienta nastať aby patril do iného fenotypu. Zo zoznamu vyberte fenotyp, pre ktorý chcete tieto minimálne zmeny určiť. Výsledkom budú minimálne zmeny vzhľadom ku najbližšiemu pacientovi (kontrafaktuálny pacient) vo vybranom fenotype.")
+    info_box(f"Kontrafaktuálne vysvetlenia popisujú aké minimálne zmeny by museli u daného pacienta nastať aby patril do iného fenotypu. Zo zoznamu vyberte fenotyp, pre ktorý chcete tieto minimálne zmeny určiť. Výsledkom budú minimálne zmeny vzhľadom ku najbližšiemu pacientovi (kontrafaktuálny pacient) vo vybranom fenotype.")
 
     st.markdown(
         "<p style='font-size:20px; font-weight:600;margin-bottom:-40px;'>Vyberte cieľový fenotyp:",
