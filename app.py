@@ -88,7 +88,16 @@ def info_box(text):
 model = joblib.load("kmeans_model_4vlna15_.pkl")
 scaler = joblib.load("scaler_4vlna15.pkl")
 X_scaled = pd.read_pickle("X_scaled_4vlna15.pkl")
+
 X_orig = pd.read_pickle("X_orig_4vlna15.pkl")
+
+# 14 atributov
+model_14 = joblib.load("kmeans_model_4vlna14_.pkl")
+scaler_14 = joblib.load("scaler_4vlna14_.pkl")
+X_scaled_14 = pd.read_pickle("X_scaled_4vlna14.pkl")
+
+X_orig_14 = pd.read_pickle("X_orig_4vlna14.pkl")
+
 
 centroids = model.cluster_centers_
 
@@ -110,9 +119,9 @@ cluster_medians = (
 )
 
 # Tabulka medianov fenotypov 
-def plot_cluster_heatmap(cluster_medians, highlight_cluster=None):
+def plot_cluster_heatmap(cluster_medians):
 
-    fig, ax = plt.subplots(figsize=(5, 5.6))
+    fig, ax = plt.subplots(figsize=(5, 5.55))
 
     sns.heatmap(
         cluster_medians.T,
@@ -132,14 +141,23 @@ def plot_cluster_heatmap(cluster_medians, highlight_cluster=None):
     return fig
 
 # Radarovy graf standardizovanych hodn;t pacienta a jeho fenotypu
-def plot_radar_scaled(centroids, patient_scaled_df, cluster, feature_names):
+def plot_radar_scaled(centroids, patient_scaled_df, cluster):
 
+    feature_names = patient_scaled_df.columns.tolist()  #  dynamicky!
     categories = feature_names
     N = len(categories)
 
     # centroid vybraného fenotypu (už standardizovany)
+    model_used = st.session_state.model_used
+    centroids = model_used.cluster_centers_
+
     cluster_vals = centroids[cluster]
     patient_vals = patient_scaled_df.values.flatten()
+
+    # kontrola (debug poistka)
+    if len(cluster_vals) != N:
+        st.error("Nesúlad počtu atribútov medzi modelom a pacientom")
+        return None
 
     cluster_vals = cluster_vals.tolist()
     patient_vals = patient_vals.tolist()
@@ -163,7 +181,7 @@ def plot_radar_scaled(centroids, patient_scaled_df, cluster, feature_names):
     ax.plot(angles, patient_vals, linewidth=1.5, linestyle="dashed", label="Pacient")
 
     ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(categories, fontsize=7)
+    ax.set_xticklabels(categories, fontsize=8)
 
     ax.set_title("Porovnanie pacienta a jeho fenotypu", pad=30)
 
@@ -205,6 +223,24 @@ st.markdown(
 
 feature_names = X_orig.columns.tolist()
 
+feature_order = [
+    "Vek",
+    "SatO2 %",
+    "WBC last",
+    "NE/LY(NLR) last",
+    "Fib last",
+    "D-dimér HS last",
+    "S-Gluk last",
+    "S-Urea last",
+    "S-Alb last",
+    "S-CRP last",
+    "S-Na last",
+    "S-CL last",
+    "S-IL6 last",
+    "S-PBNP last",
+    "P-Laktát last",
+]
+
 feature_units = {
     "NE/LY(NLR) last": "",
     "S-CRP last": "mg/l",
@@ -229,16 +265,37 @@ n_cols = 5                  # polia na zadanie hodnot pacienta v 5 stlpcoch
 cols = st.columns(n_cols)
 
 
-
-for i, feature in enumerate(feature_names):
+for i, feature in enumerate(feature_order):
     col = cols[i % n_cols]
     with col:
         unit = feature_units.get(feature, "")     #jednotky
-        
-        input_data[feature] = st.number_input(
-            f"{feature} ({unit})" if unit else feature,
-            value=float(X_orig[feature].median())         # predvyplnen8 hodnota je medi8n
-        )
+      
+        # ŠPECIÁLNY PRÍPAD: LAKTÁT
+        if feature == "P-Laktát last":
+
+            #lactate_col1, lactate_col2 = st.columns([2,1])
+
+            with col:
+                lactate_value = st.number_input(
+                    f"{feature} ({unit})" if unit else feature,
+                    value=float(X_orig[feature].median())
+                )
+
+            with col:
+                lactate_missing = st.checkbox("P-Laktát nevyšetrený", key="lactate_missing")  # checkbox
+
+            # 👉 uloženie do input_data
+            if lactate_missing:
+                input_data[feature] = np.nan
+            else: 
+                input_data[feature] = lactate_value
+
+        # ostatne atributy
+        else:
+            input_data[feature] = st.number_input(
+                f"{feature} ({unit})" if unit else feature,
+                value=float(X_orig[feature].median())         # predvyplnen8 hodnota je medi8n
+            )
 
 # convert na DataFrame
 new_patient_df = pd.DataFrame([input_data])
@@ -246,6 +303,7 @@ new_patient_df = pd.DataFrame([input_data])
 # ==========================
 # INICIALIZACIA
 # ==========================
+
 
 if "cluster" not in st.session_state:
     st.session_state.cluster = None
@@ -267,16 +325,60 @@ with cols[2]:
     if pressed:
 
         new_patient_df = pd.DataFrame([input_data])
-        new_patient_df = new_patient_df[X_orig.columns]
 
-        new_patient_scaled = scaler.transform(new_patient_df)
+        
+        #new_patient_df = new_patient_df[X_orig.columns]
+        #new_patient_scaled = scaler.transform(new_patient_df)
 
-        new_patient_scaled_df = pd.DataFrame(
-            new_patient_scaled,
-            columns=X_orig.columns
-        )
+        #new_patient_scaled_df = pd.DataFrame(
+           # new_patient_scaled,
+            #columns=X_orig.columns
+        #)
 
-        cluster = model.predict(new_patient_scaled_df)[0]
+        #cluster = model.predict(new_patient_scaled_df)[0]
+        
+
+        # TU ZAČÍNA LOGIKA PREPÍNANIA
+        if pd.isna(new_patient_df["P-Laktát last"].iloc[0]):
+
+            #st.warning("Použitý model bez laktátu")
+
+            # odstránime laktát
+            df = new_patient_df.drop(columns=["P-Laktát last"])
+
+            # zoradenie podľa tréningu
+            df = df[X_scaled_14.columns]
+
+            new_patient_scaled = scaler_14.transform(df)
+
+            new_patient_scaled_df = pd.DataFrame(
+                new_patient_scaled,
+                columns=X_scaled_14.columns
+            )
+
+            cluster = model_14.predict(new_patient_scaled_df)[0]
+
+            # uložíme správny dataset
+            st.session_state.X_scaled_used = X_scaled_14
+            st.session_state.model_used = model_14
+            st.session_state.X_orig_used = X_orig_14
+
+        else:
+
+            df = new_patient_df[X_scaled.columns]
+
+            new_patient_scaled = scaler.transform(df)
+
+            new_patient_scaled_df = pd.DataFrame(
+                new_patient_scaled,
+                columns=X_scaled.columns
+            )
+
+            cluster = model.predict(new_patient_scaled_df)[0]
+
+            st.session_state.X_scaled_used = X_scaled
+            st.session_state.model_used = model
+            st.session_state.X_orig_used = X_orig
 
         # ULOŽÍME 
         st.session_state.cluster = cluster
@@ -318,8 +420,7 @@ if st.session_state.cluster is not None:
         radar_fig = plot_radar_scaled(
             centroids,
             st.session_state.new_patient_scaled_df,
-            cluster,
-            feature_names
+            cluster
         )
         st.pyplot(radar_fig, use_container_width=False)
 
@@ -359,8 +460,14 @@ if st.session_state.cluster is not None:
             new_patient_scaled_df = st.session_state.new_patient_scaled_df
             new_patient_df = st.session_state.new_patient_df
 
-            mask = model.labels_ == desired_cluster
-            X_target_scaled = X_scaled[mask]
+            model_used = st.session_state.model_used
+            X_scaled_used = st.session_state.X_scaled_used
+
+            centroids = model_used.cluster_centers_
+
+
+            mask = model_used.labels_ == desired_cluster
+            X_target_scaled = X_scaled_used[mask]
 
             nn = NearestNeighbors(n_neighbors=1)
             nn.fit(X_target_scaled.values)
@@ -368,7 +475,7 @@ if st.session_state.cluster is not None:
             dist, neighbor_pos = nn.kneighbors(new_patient_scaled_df.values)
             anchor_idx = X_target_scaled.index[neighbor_pos[0][0]]
 
-            x_anchor_scaled = X_scaled.loc[anchor_idx].values
+            x_anchor_scaled = X_scaled_used.loc[anchor_idx].values
             x_patient_scaled = new_patient_scaled_df.values.ravel()
 
             deltas = x_anchor_scaled - x_patient_scaled
@@ -377,9 +484,11 @@ if st.session_state.cluster is not None:
             x_cf_scaled = x_patient_scaled.copy()
             changed = []
 
+            feature_names_used = new_patient_scaled_df.columns.tolist()
+
             for j in order:
                 x_cf_scaled[j] = x_anchor_scaled[j]
-                changed.append(feature_names[j])
+                changed.append(feature_names_used[j])
 
                 new_cluster = np.argmin(
                     np.linalg.norm(centroids - x_cf_scaled, axis=1)
@@ -387,8 +496,11 @@ if st.session_state.cluster is not None:
 
                 if new_cluster == desired_cluster:
                     break
+            
+            X_orig_used = st.session_state.X_orig_used
 
-            x_anchor_orig = X_orig.loc[anchor_idx]
+
+            x_anchor_orig = X_orig_used.loc[anchor_idx]
             x_cf_orig = new_patient_df.iloc[0].copy()
 
             for col in changed:
@@ -411,3 +523,4 @@ if st.session_state.cluster is not None:
             with cf_center:
                 st.markdown("##### Minimálne zmeny pre preradenie pacienta:")
                 st.dataframe(cf_table, use_container_width=True)
+
